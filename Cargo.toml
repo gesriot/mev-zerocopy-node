@@ -1,0 +1,44 @@
+[package]
+name = "mev-zerocopy-node"
+version = "0.1.0"
+edition = "2021"
+description = "High-Performance MEV Node with Userspace TCP/IP and Zero-Copy serialization"
+
+[features]
+default = []
+af_xdp = []
+
+[dependencies]
+# Network Stack (Kernel Bypass)
+smoltcp = { version = "0.11.0", features = ["std", "medium-ethernet", "phy-tuntap_interface", "socket-tcp", "socket-udp"] }
+libc = "0.2"
+
+# Zero-copy parsing
+zerocopy = { version = "0.7", features = ["derive"] }
+bytemuck = { version = "1.20", features = ["derive"] }
+
+# Hot-path data structures & runtime
+heapless = "0.8"
+core_affinity = "0.8"
+
+# Logging & Metrics
+log = "0.4"
+env_logger = "0.11"
+minstant = "0.1"
+
+[dev-dependencies]
+criterion = "0.5"
+serde = { version = "1.0", features = ["derive"] }
+bincode = "1.3"
+serde_json = "1.0"
+
+[profile.release]
+lto = "fat"
+codegen-units = 1
+opt-level = 3
+panic = "abort"
+debug = false
+
+[[bench]]
+name = "zero_copy_bench"
+harness = false

@@ -1,0 +1,78 @@
+version: "3.9"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# MEV Zero-Copy Node — Docker Compose test environment
+#
+# Services:
+#   node      — builds and runs the Rust MEV node (smoltcp + tap0)
+#   traffic   — generates a .pcap file and replays it via tcpreplay
+#
+# Usage:
+#   # Start both services (node + traffic generator):
+#   docker compose up --build
+#
+#   # Node only (manual traffic via tcpreplay outside Docker):
+#   docker compose up --build node
+#
+#   # Custom packet count / mode:
+#   PCAP_COUNT=500 PCAP_MODE=large docker compose up --build
+#
+# ─────────────────────────────────────────────────────────────────────────────
+
+services:
+
+  # ── MEV node ────────────────────────────────────────────────────────────────
+  node:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: runtime
+    image: mev-zerocopy-node:latest
+    container_name: mev_node
+    # NET_ADMIN: required for `ip tuntap add` inside the container
+    # SYS_RAWIO: required if using raw sockets / AF_XDP probe
+    cap_add:
+      - NET_ADMIN
+      - SYS_RAWIO
+    # Shared host network namespace so tap0 is visible to the traffic container
+    network_mode: host
+    environment:
+      RUST_LOG: "${RUST_LOG:-info}"
+      MEV_BACKEND: "${MEV_BACKEND:-tap}"
+    volumes:
+      # Mount traffic directory so both containers share pcap files
+      - ./traffic:/app/traffic:rw
+    # Healthcheck: node is healthy once it starts listening on 8080
+    healthcheck:
+      test: ["CMD-SHELL", "ss -ulnp | grep -q 8080 || ss -tlnp | grep -q 8080 || true"]
+      interval: 3s
+      timeout: 2s
+      retries: 10
+      start_period: 5s
+    restart: unless-stopped
+
+  # ── Traffic generator ────────────────────────────────────────────────────────
+  traffic:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: runtime
+    image: mev-zerocopy-node:latest
+    container_name: mev_traffic
+    cap_add:
+      - NET_ADMIN
+    network_mode: host
+    depends_on:
+      node:
+        condition: service_healthy
+    environment:
+      PCAP_FILE: "${PCAP_FILE:-/app/traffic/mock_tx.pcap}"
+      PCAP_COUNT: "${PCAP_COUNT:-200}"
+      PCAP_MODE: "${PCAP_MODE:-mixed}"
+      PCAP_SEED: "${PCAP_SEED:-42}"
+      REPLAY_MBPS: "${REPLAY_MBPS:-10}"
+    volumes:
+      - ./traffic:/app/traffic:rw
+      - ./scripts:/app/scripts:ro
+    entrypoint: ["/bin/bash", "/app/scripts/traffic-entrypoint.sh"]
+    restart: "no"
