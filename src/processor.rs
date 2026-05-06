@@ -41,7 +41,11 @@ impl AmmPoolState {
             .checked_mul(self.fee_den as u128)?
             .checked_add(amount_in_with_fee as u128)?;
         let out = (numerator / denominator) as u64;
-        if out == 0 { None } else { Some(out) }
+        if out == 0 {
+            None
+        } else {
+            Some(out)
+        }
     }
 
     /// Compute sandwich arbitrage profit (no allocations).
@@ -50,14 +54,25 @@ impl AmmPoolState {
     /// victim executes at worse price, we back-run (sell token1 back).
     /// Returns estimated profit in token0 units, or None if unprofitable.
     #[inline(always)]
-    pub fn sandwich_profit(&self, victim_amount_in: u64, our_amount_in: u64, zero_for_one: bool) -> Option<u64> {
+    pub fn sandwich_profit(
+        &self,
+        victim_amount_in: u64,
+        our_amount_in: u64,
+        zero_for_one: bool,
+    ) -> Option<u64> {
         // Step 1: our front-run buy (we buy token1 with our_amount_in of token0)
         let our_out = self.get_amount_out(our_amount_in, zero_for_one)?;
         // New pool reserves after our front-run
         let (new_reserve0, new_reserve1) = if zero_for_one {
-            (self.reserve0.checked_add(our_amount_in)?, self.reserve1.checked_sub(our_out)?)
+            (
+                self.reserve0.checked_add(our_amount_in)?,
+                self.reserve1.checked_sub(our_out)?,
+            )
         } else {
-            (self.reserve0.checked_sub(our_out)?, self.reserve1.checked_add(our_amount_in)?)
+            (
+                self.reserve0.checked_sub(our_out)?,
+                self.reserve1.checked_add(our_amount_in)?,
+            )
         };
         let pool_after_frontrun = AmmPoolState {
             reserve0: new_reserve0,
@@ -69,10 +84,16 @@ impl AmmPoolState {
         let _ = pool_after_frontrun.get_amount_out(victim_amount_in, zero_for_one)?;
         let (r0_after_victim, r1_after_victim) = if zero_for_one {
             let victim_out = pool_after_frontrun.get_amount_out(victim_amount_in, zero_for_one)?;
-            (new_reserve0.checked_add(victim_amount_in)?, new_reserve1.checked_sub(victim_out)?)
+            (
+                new_reserve0.checked_add(victim_amount_in)?,
+                new_reserve1.checked_sub(victim_out)?,
+            )
         } else {
             let victim_out = pool_after_frontrun.get_amount_out(victim_amount_in, zero_for_one)?;
-            (new_reserve0.checked_sub(victim_out)?, new_reserve1.checked_add(victim_amount_in)?)
+            (
+                new_reserve0.checked_sub(victim_out)?,
+                new_reserve1.checked_add(victim_amount_in)?,
+            )
         };
         // Step 3: our back-run sell (we sell our_out of token1 back for token0)
         let pool_after_victim = AmmPoolState {
@@ -90,8 +111,8 @@ impl AmmPoolState {
 /// Static mock pool state — represents a Uniswap-style pool seeded with liquidity.
 /// In production this would be updated from on-chain state reads.
 static MOCK_POOL: AmmPoolState = AmmPoolState {
-    reserve0: 1_000_000_000_000, // 1,000,000 token0 (e.g., 1M USDC, 6 decimals)
-    reserve1: 500_000_000_000,   // 500,000 token1 (e.g., 500K ETH units)
+    reserve0: 500_000_000, // 500M token0
+    reserve1: 250_000_000, // 250M token1
     fee_num: 3,
     fee_den: 1_000,
 };
@@ -140,8 +161,15 @@ mod tests {
 
     #[test]
     fn amm_get_amount_out_basic() {
-        let pool = AmmPoolState { reserve0: 1_000_000, reserve1: 1_000_000, fee_num: 3, fee_den: 1_000 };
-        let out = pool.get_amount_out(1_000, true).expect("should produce output");
+        let pool = AmmPoolState {
+            reserve0: 1_000_000,
+            reserve1: 1_000_000,
+            fee_num: 3,
+            fee_den: 1_000,
+        };
+        let out = pool
+            .get_amount_out(1_000, true)
+            .expect("should produce output");
         // With equal reserves and small input, output should be slightly less than input (fee + slippage)
         assert!(out < 1_000);
         assert!(out > 900);
@@ -149,18 +177,21 @@ mod tests {
 
     #[test]
     fn amm_rejects_zero_reserves() {
-        let pool = AmmPoolState { reserve0: 0, reserve1: 1_000_000, fee_num: 3, fee_den: 1_000 };
+        let pool = AmmPoolState {
+            reserve0: 0,
+            reserve1: 1_000_000,
+            fee_num: 3,
+            fee_den: 1_000,
+        };
         assert!(pool.get_amount_out(1_000, true).is_none());
     }
 
     #[test]
     fn process_packet_profitable_swap() {
         let tx = DexSwapTx::from_parts(
-            42,
-            [0xAB; 20],
-            50_000_000,  // large victim swap
-            1,           // min_out = 1, so no slippage revert
-            0,           // zero_for_one
+            42, [0xAB; 20], 50_000_000, // large victim swap
+            1,          // min_out = 1, so no slippage revert
+            0,          // zero_for_one
         );
         let raw = bytes_of(&tx);
         let profit = process_packet(raw);
@@ -171,6 +202,9 @@ mod tests {
     fn process_packet_rejects_small_swap() {
         let tx = DexSwapTx::from_parts(1, [0u8; 20], 500, 1, 0);
         let raw = bytes_of(&tx);
-        assert!(process_packet(raw).is_none(), "below MIN_AMOUNT_IN should return None");
+        assert!(
+            process_packet(raw).is_none(),
+            "below MIN_AMOUNT_IN should return None"
+        );
     }
 }

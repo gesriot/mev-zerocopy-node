@@ -17,7 +17,7 @@ use zerocopy::{AsBytes, FromBytes, FromZeroes};
 /// high-throughput indexers (OpenBook, Phoenix) — via `bytemuck` / `zerocopy`
 /// rather than Anchor's serde-style `AccountDeserialize`.
 #[repr(C)]
-#[derive(Debug, Clone, Copy, FromBytes, AsBytes, FromZeroes)]
+#[derive(Debug, Clone, Copy, PartialEq, FromBytes, AsBytes, FromZeroes)]
 pub struct PoolStateUpdate {
     /// Pool address (20 bytes, Ethereum-style or Solana truncated).
     pub pool_address: [u8; 20],
@@ -82,10 +82,10 @@ pub enum ValidationError {
 /// Returns `Err(ValidationError)` if the slice is malformed or the pool
 /// state fails sanity checks.
 #[inline(always)]
-pub fn validate_pool_update<'a>(
-    data: &'a [u8],
+pub fn validate_pool_update(
+    data: &[u8],
     last_seq: u32,
-) -> Result<&'a PoolStateUpdate, ValidationError> {
+) -> Result<&PoolStateUpdate, ValidationError> {
     if data.len() < PoolStateUpdate::WIRE_SIZE {
         return Err(ValidationError::TooShort);
     }
@@ -141,20 +141,32 @@ mod tests {
     #[test]
     fn zerocopy_rejects_zero_reserves() {
         let buf = make_update(0, 0, 1, 1);
-        assert_eq!(validate_pool_update(&buf, 0), Err(ValidationError::ZeroReserves));
+        assert_eq!(
+            validate_pool_update(&buf, 0),
+            Err(ValidationError::ZeroReserves)
+        );
     }
 
     #[test]
     fn zerocopy_detects_sequence_gap() {
         let buf = make_update(1_000, 2_000, 1, 5);
         let result = validate_pool_update(&buf, 3); // expected seq=4, got seq=5
-        assert_eq!(result, Err(ValidationError::SequenceGap { expected: 4, got: 5 }));
+        assert_eq!(
+            result,
+            Err(ValidationError::SequenceGap {
+                expected: 4,
+                got: 5
+            })
+        );
     }
 
     #[test]
     fn zerocopy_rejects_short_slice() {
         let short = [0u8; 10];
-        assert_eq!(validate_pool_update(&short, 0), Err(ValidationError::TooShort));
+        assert_eq!(
+            validate_pool_update(&short, 0),
+            Err(ValidationError::TooShort)
+        );
     }
 
     #[test]

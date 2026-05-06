@@ -488,6 +488,7 @@ dependencies = [
  "log",
  "minstant",
  "serde",
+ "serde_json",
  "smoltcp",
  "zerocopy 0.7.35",
 ]

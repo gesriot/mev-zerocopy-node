@@ -94,7 +94,7 @@ impl UmemConfig {
 /// - Correct ABI layout expected by the Linux kernel.
 /// - Each descriptor occupies its own cache line (no false sharing).
 #[repr(C, align(64))]
-#[derive(Clone, Copy, Debug, Default)]
+#[derive(Clone, Copy, Debug)]
 pub struct XdpRingDescriptor {
     /// Byte offset of the frame within the UMEM region.
     pub addr: u64,
@@ -108,11 +108,27 @@ pub struct XdpRingDescriptor {
 
 const _: () = assert!(core::mem::size_of::<XdpRingDescriptor>() == 64);
 
+impl Default for XdpRingDescriptor {
+    fn default() -> Self {
+        Self {
+            addr: 0,
+            len: 0,
+            options: 0,
+            _pad: [0u8; 48],
+        }
+    }
+}
+
 impl XdpRingDescriptor {
     /// Create a new descriptor pointing to a UMEM frame.
     #[inline(always)]
     pub fn new(addr: u64, len: u32) -> Self {
-        Self { addr, len, options: 0, _pad: [0u8; 48] }
+        Self {
+            addr,
+            len,
+            options: 0,
+            _pad: [0u8; 48],
+        }
     }
 }
 
@@ -249,7 +265,12 @@ mod linux_impl {
                 )
             };
 
-            Ok(Self { ptr: ptr as *mut u8, size, config, fd })
+            Ok(Self {
+                ptr: ptr as *mut u8,
+                size,
+                config,
+                fd,
+            })
         }
 
         /// Return a mutable slice for the frame at `frame_index`.
@@ -258,10 +279,7 @@ mod linux_impl {
         pub unsafe fn frame_mut(&mut self, frame_index: u32) -> &mut [u8] {
             assert!((frame_index as usize) < self.config.frame_count as usize);
             let offset = frame_index as usize * self.config.frame_size as usize;
-            core::slice::from_raw_parts_mut(
-                self.ptr.add(offset),
-                self.config.frame_size as usize,
-            )
+            core::slice::from_raw_parts_mut(self.ptr.add(offset), self.config.frame_size as usize)
         }
     }
 
@@ -331,11 +349,8 @@ mod linux_impl {
                 sxdp_queue_id: u32,
                 sxdp_shared_umem_fd: u32,
             }
-            let ifindex = unsafe {
-                libc::if_nametoindex(
-                    cfg.interface.as_ptr() as *const libc::c_char,
-                )
-            };
+            let ifindex =
+                unsafe { libc::if_nametoindex(cfg.interface.as_ptr() as *const libc::c_char) };
             if ifindex == 0 {
                 unsafe { libc::close(fd) };
                 return Err(XdpError::IfNotFound);
@@ -367,7 +382,10 @@ mod linux_impl {
 
             log::info!(
                 "AF_XDP socket bound: iface={} queue={} mode={:?} fd={}",
-                cfg.interface, cfg.queue_id, cfg.mode, fd
+                cfg.interface,
+                cfg.queue_id,
+                cfg.mode,
+                fd
             );
             Ok(Self { fd, config: cfg })
         }
@@ -380,7 +398,12 @@ mod linux_impl {
         /// The caller must read `umem.frame_at(desc.addr)[..desc.len]` and then
         /// recycle the frame by writing `desc.addr` back to the Fill ring.
         #[inline(always)]
-        pub fn poll_rx(&self, rx_ring_ptr: *mut XdpRingDescriptor, rx_idx: &mut u32, ring_size: u32) -> Option<XdpRingDescriptor> {
+        pub fn poll_rx(
+            &self,
+            rx_ring_ptr: *mut XdpRingDescriptor,
+            rx_idx: &mut u32,
+            ring_size: u32,
+        ) -> Option<XdpRingDescriptor> {
             // In real AF_XDP usage the ring pointers are mmap'd from the kernel
             // via getsockopt(XDP_MMAP_OFFSETS) + mmap(fd, offset=XDP_PGOFF_RX_RING).
             // Here we read from the pre-mapped ring pointer.

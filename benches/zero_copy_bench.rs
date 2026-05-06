@@ -2,7 +2,7 @@ use bytemuck::bytes_of;
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use mev_zerocopy_node::payload::DexSwapTx;
 use mev_zerocopy_node::processor;
-use mev_zerocopy_node::validator::{PoolStateUpdate, validate_pool_update};
+use mev_zerocopy_node::validator::{validate_pool_update, PoolStateUpdate};
 use serde::{Deserialize, Serialize};
 use zerocopy::AsBytes;
 
@@ -72,9 +72,7 @@ fn bench_pool_update_parsing(c: &mut Criterion) {
     let wire_bytes: Vec<u8> = update.as_bytes().to_vec();
 
     // serde_json path: build JSON bytes once
-    let json_bytes = format!(
-        r#"{{"pool":"0xabababababababababababababababababababababab","reserve0":1000000000,"reserve1":500000000,"slot":12345678,"seq":1}}"#
-    );
+    let json_bytes = r#"{"pool":"0xabababababababababababababababababababababab","reserve0":1000000000,"reserve1":500000000,"slot":12345678,"seq":1}"#;
 
     group.bench_function("zerocopy_ref_from", |b| {
         b.iter(|| {
@@ -86,8 +84,7 @@ fn bench_pool_update_parsing(c: &mut Criterion) {
     group.bench_function("serde_json_deserialize", |b| {
         b.iter(|| {
             // Simulate what a naive implementation would do
-            let s: serde_json::Value =
-                serde_json::from_str(black_box(json_bytes.as_str())).expect("parse");
+            let s: serde_json::Value = serde_json::from_str(black_box(json_bytes)).expect("parse");
             black_box(s["reserve0"].as_u64().unwrap_or(0));
         })
     });
@@ -111,5 +108,10 @@ fn bench_full_hot_path(c: &mut Criterion) {
     group.finish();
 }
 
-criterion_group!(benches, bench_deserialization, bench_pool_update_parsing, bench_full_hot_path);
+criterion_group!(
+    benches,
+    bench_deserialization,
+    bench_pool_update_parsing,
+    bench_full_hot_path
+);
 criterion_main!(benches);
